@@ -12,8 +12,8 @@ from langchain.memory import ConversationBufferMemory
 from langchain.vectorstores import FAISS
 from langchain.memory import StreamlitChatMessageHistory
 
-# 더 작은 모델 설정
-MODEL = 'beomi/KoAlpaca-Polyglot-3.9B'
+# 모델 설정
+MODEL = 'beomi/KoAlpaca-Polyglot-5.8B'
 
 try:
     model = AutoModelForCausalLM.from_pretrained(
