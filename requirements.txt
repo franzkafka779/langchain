@@ -9,3 +9,5 @@ openai
 pypdf
 loguru
 docx2txt
+transformers
+torch
