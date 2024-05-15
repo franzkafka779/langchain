@@ -18,8 +18,7 @@ MODEL = 'beomi/KoAlpaca-Polyglot-5.8B'
 try:
     model = AutoModelForCausalLM.from_pretrained(
         MODEL,
-        torch_dtype=torch.float16,
-        low_cpu_mem_usage=True,
+        torch_dtype=torch.float16
     ).to(device="cpu")
     model.eval()
     tokenizer = AutoTokenizer.from_pretrained(MODEL)
