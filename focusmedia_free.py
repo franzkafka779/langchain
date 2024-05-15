@@ -14,19 +14,24 @@ from langchain.memory import StreamlitChatMessageHistory
 
 # KoAlpaca 모델 설정
 MODEL = 'beomi/KoAlpaca-Polyglot-5.8B'
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL,
-    torch_dtype=torch.float16,
-    low_cpu_mem_usage=True,
-).to(device=f"cuda", non_blocking=True)
-model.eval()
-tokenizer = AutoTokenizer.from_pretrained(MODEL)
-pipe = pipeline(
-    'text-generation',
-    model=model,
-    tokenizer=tokenizer,
-    device=0
-)
+
+try:
+    model = AutoModelForCausalLM.from_pretrained(
+        MODEL,
+        torch_dtype=torch.float16,
+        low_cpu_mem_usage=True,
+    ).to(device="cpu")
+    model.eval()
+    tokenizer = AutoTokenizer.from_pretrained(MODEL)
+    pipe = pipeline(
+        'text-generation',
+        model=model,
+        tokenizer=tokenizer,
+        device=-1  # CPU를 사용하도록 설정
+    )
+except ImportError as e:
+    logger.error(f"Error importing model: {e}")
+    st.error(f"Error importing model: {e}")
 
 def ask(question, context=''):
     result = pipe(
