@@ -16,10 +16,13 @@ from langchain.prompts import PromptTemplate
 from langchain.chains.llm import LLMChain
 
 class HuggingFaceLLM(LLM):
+    model_name: str
+
     def __init__(self, model_name, **kwargs):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModelForCausalLM.from_pretrained(model_name)
         self.pipeline = pipeline("text-generation", model=self.model, tokenizer=self.tokenizer, **kwargs)
+        self.model_name = model_name
 
     def _call(self, prompt, stop=None, **kwargs):
         result = self.pipeline(prompt, max_length=150, num_return_sequences=1)
@@ -27,7 +30,7 @@ class HuggingFaceLLM(LLM):
 
     @property
     def _identifying_params(self):
-        return {"model_name": self.model.name_or_path}
+        return {"model_name": self.model_name}
 
     @property
     def _llm_type(self):
