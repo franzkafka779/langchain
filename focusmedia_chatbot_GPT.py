@@ -2,10 +2,11 @@ import streamlit as st
 import tiktoken
 from loguru import logger
 
-from transformers import pipeline
+from transformers import pipeline, AutoTokenizer, AutoModelForQuestionAnswering
 from langchain.chains import ConversationalRetrievalChain
 from langchain.chains.qa_with_sources import load_qa_with_sources_chain
-from langchain.chains.question_answering import load_qa_chain
+from langchain.llms.base import LLM
+from langchain.prompts import PromptTemplate
 
 from langchain.document_loaders import PyPDFLoader
 from langchain.document_loaders import Docx2txtLoader
@@ -19,6 +20,25 @@ from langchain.vectorstores import FAISS
 
 from langchain.callbacks import get_openai_callback
 from langchain.memory import StreamlitChatMessageHistory
+
+class HuggingFaceLLM(LLM):
+    def __init__(self, model_name):
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.model = AutoModelForQuestionAnswering.from_pretrained(model_name)
+        self.pipeline = pipeline("question-answering", model=self.model, tokenizer=self.tokenizer)
+    
+    def _call(self, prompt, stop=None):
+        input_text = prompt[0] if isinstance(prompt, list) else prompt
+        question, context = input_text.split("context: ")
+        return self.pipeline(question=question, context=context)['answer']
+    
+    @property
+    def _identifying_params(self):
+        return {"model_name": self.model.name_or_path}
+
+    @property
+    def _llm_type(self):
+        return "custom"
 
 def main():
     st.set_page_config(
@@ -138,23 +158,17 @@ def get_vectorstore(text_chunks):
     return vectordb
 
 def get_conversation_chain(vectorstore):  # vetorestore 변수명 변경
-    qa_pipeline = pipeline("question-answering", model="deepset/roberta-base-squad2")
+    model_name = "deepset/roberta-base-squad2"
+    llm = HuggingFaceLLM(model_name=model_name)
+    prompt_template = PromptTemplate(
+        input_variables=["question", "context"],
+        template="Question: {question}\nContext: {context}\nAnswer:"
+    )
 
-    def qa_chain(inputs):
-        question = inputs["question"]
-        context = "\n".join([doc.page_content for doc in vectorstore.search(question, k=3)])
-        result = qa_pipeline(question=question, context=context)
-        return {
-            'answer': result['answer'],
-            'chat_history': inputs['chat_history'],
-            'source_documents': vectorstore.search(question, k=3)
-        }
-
-    llm_chain = load_qa_with_sources_chain(llm=qa_pipeline)
+    qa_chain = load_qa_with_sources_chain(llm=llm, prompt=prompt_template)
 
     conversation_chain = ConversationalRetrievalChain(
-        combine_docs_chain=llm_chain,
-        question_generator=qa_chain,
+        combine_docs_chain=qa_chain,
         retriever=vectorstore.as_retriever(search_type='mmr', verbose=True),
         memory=ConversationBufferMemory(memory_key='chat_history', return_messages=True, output_key='answer'),
         get_chat_history=lambda h: h,
