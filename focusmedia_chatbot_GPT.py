@@ -1,30 +1,13 @@
 import streamlit as st
-import tiktoken
-from loguru import logger
-
-from transformers import pipeline, AutoTokenizer, AutoModelForQuestionAnswering
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from langchain.chains import ConversationalRetrievalChain
-from langchain.chains.qa_with_sources import load_qa_with_sources_chain
-from langchain.llms import HuggingFaceRunnableLLM
-from langchain.prompts import PromptTemplate
 from langchain.document_loaders import PyPDFLoader, Docx2txtLoader, UnstructuredPowerPointLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.memory import ConversationBufferMemory
 from langchain.vectorstores import FAISS
-from langchain.callbacks import get_openai_callback
 from langchain.memory import StreamlitChatMessageHistory
-
-class HuggingFaceRunnableLLM:
-    def __init__(self, model_name):
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForQuestionAnswering.from_pretrained(model_name)
-        self.pipeline = pipeline("question-answering", model=self.model, tokenizer=self.tokenizer)
-    
-    def __call__(self, inputs):
-        question, context = inputs["question"], inputs["context"]
-        result = self.pipeline(question=question, context=context)
-        return result['answer']
+import tempfile
 
 def main():
     st.set_page_config(
@@ -65,7 +48,6 @@ def main():
 
     history = StreamlitChatMessageHistory(key="chat_messages")
 
-    # 채팅 로직
     if query := st.chat_input("질문을 입력해주세요."):
         st.session_state.messages.append({"role": "user", "content": query})
 
@@ -79,9 +61,6 @@ def main():
                 st.error("Conversation chain is not initialized. Please process the documents first.")
                 return
 
-            logger.info(f"User query: {query}")  # 디버그 출력 추가
-            logger.info(f"Conversation chain: {chain}")  # 디버그 출력 추가
-
             with st.spinner("Thinking..."):
                 try:
                     result = chain({"question": query})
@@ -91,17 +70,16 @@ def main():
 
                     st.markdown(response)
                     with st.expander("참고 문서 확인"):
-                        for doc in source_documents:  # 문서 출력 개선
+                        for doc in source_documents:
                             st.markdown(doc.metadata['source'], help=doc.page_content)
 
-                except Exception as e:  # 예외 처리 추가
+                except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
-                    logger.error(f"Error during chain call: {str(e)}")
 
                 st.session_state.messages.append({"role": "assistant", "content": response})
 
 def tiktoken_len(text):
-    tokenizer = tiktoken.get_encoding("cl100k_base")
+    tokenizer = AutoTokenizer.from_pretrained("facebook/bart-large")
     tokens = tokenizer.encode(text)
     return len(tokens)
 
@@ -109,15 +87,15 @@ def get_text(docs):
     doc_list = []
     for doc in docs:
         file_name = doc.name
-        with open(file_name, "wb") as file:
-            file.write(doc.getvalue())
-            logger.info(f"Uploaded {file_name}")
+        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+            tmp_file.write(doc.getvalue())
+            tmp_file_path = tmp_file.name
         if file_name.endswith('.pdf'):
-            loader = PyPDFLoader(file_name)
+            loader = PyPDFLoader(tmp_file_path)
         elif file_name.endswith('.docx'):
-            loader = Docx2txtLoader(file_name)
-        elif file_name.endswith('.pptx'):  # pptx 파일에 대한 지원 추가
-            loader = UnstructuredPowerPointLoader(file_name)
+            loader = Docx2txtLoader(tmp_file_path)
+        elif file_name.endswith('.pptx'):
+            loader = UnstructuredPowerPointLoader(tmp_file_path)
         else:
             st.error(f"Unsupported file format: {file_name}")
             continue
@@ -136,25 +114,21 @@ def get_text_chunks(text):
 
 def get_vectorstore(text_chunks):
     embeddings = HuggingFaceEmbeddings(
-        model_name="jhgan/ko-sroberta-multitask",
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
         model_kwargs={'device': 'cpu'},
         encode_kwargs={'normalize_embeddings': True}
     )
     vectordb = FAISS.from_documents(text_chunks, embeddings)
     return vectordb
 
-def get_conversation_chain(vectorstore):  # vetorestore 변수명 변경
-    model_name = "deepset/roberta-base-squad2"
-    llm = HuggingFaceRunnableLLM(model_name=model_name)
-    prompt_template = PromptTemplate(
-        input_variables=["question", "context"],
-        template="Question: {question}\nContext: {context}\nAnswer:"
-    )
-
-    qa_chain = load_qa_with_sources_chain(llm=llm, prompt=prompt_template)
-
-    conversation_chain = ConversationalRetrievalChain(
-        combine_docs_chain=qa_chain,
+def get_conversation_chain(vectorstore):
+    model_name = "facebook/blenderbot-400M-distill"  # 사용하고자 하는 모델 이름
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    
+    conversation_chain = ConversationalRetrievalChain.from_llm(
+        llm=lambda q: model.generate(tokenizer.encode(q, return_tensors='pt')),
+        chain_type="stuff",
         retriever=vectorstore.as_retriever(search_type='mmr', verbose=True),
         memory=ConversationBufferMemory(memory_key='chat_history', return_messages=True, output_key='answer'),
         get_chat_history=lambda h: h,
