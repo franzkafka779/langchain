@@ -40,7 +40,7 @@ def main():
     # 모델 미리 로딩
     if "llm" not in st.session_state:
         with st.spinner("모델을 로딩 중입니다..."):
-            st.session_state.llm = HuggingFaceLLM(model_name="EleutherAI/gpt-neo-2.7B")
+            st.session_state.llm = HuggingFaceLLM(model_name="distilgpt2")
 
     with st.sidebar:
         uploaded_files = st.file_uploader("Upload your file", type=['pdf', 'docx', 'pptx'], accept_multiple_files=True)
