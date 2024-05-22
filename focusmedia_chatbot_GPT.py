@@ -4,6 +4,8 @@ from loguru import logger
 
 from transformers import pipeline
 from langchain.chains import ConversationalRetrievalChain
+from langchain.chains.question_answering import load_qa_chain
+from langchain.chains.combine_documents import StuffDocumentsChain
 
 from langchain.document_loaders import PyPDFLoader
 from langchain.document_loaders import Docx2txtLoader
@@ -148,8 +150,12 @@ def get_conversation_chain(vectorstore):  # vetorestore 변수명 변경
             'source_documents': vectorstore.search(question, k=3)
         }
 
+    llm_chain = load_qa_chain(llm=qa_pipeline)
+    combine_docs_chain = StuffDocumentsChain()
+
     conversation_chain = ConversationalRetrievalChain(
-        chain=qa_chain,
+        combine_docs_chain=combine_docs_chain,
+        question_generator=llm_chain,
         retriever=vectorstore.as_retriever(search_type='mmr', verbose=True),
         memory=ConversationBufferMemory(memory_key='chat_history', return_messages=True, output_key='answer'),
         get_chat_history=lambda h: h,
