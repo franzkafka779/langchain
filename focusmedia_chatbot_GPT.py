@@ -2,31 +2,28 @@ import streamlit as st
 import tiktoken
 from loguru import logger
 
+from transformers import pipeline
 from langchain.chains import ConversationalRetrievalChain
-from langchain.document_loaders import PyPDFLoader, Docx2txtLoader, UnstructuredPowerPointLoader
+
+from langchain.document_loaders import PyPDFLoader
+from langchain.document_loaders import Docx2txtLoader
+from langchain.document_loaders import UnstructuredPowerPointLoader
+
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings import HuggingFaceEmbeddings
+
 from langchain.memory import ConversationBufferMemory
 from langchain.vectorstores import FAISS
+
+from langchain.callbacks import get_openai_callback
 from langchain.memory import StreamlitChatMessageHistory
-from googletrans import Translator
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
-from langchain.chains.llm import LLMChain
-from langchain.prompts import PromptTemplate
-from langchain.schema import Document
-
-class HuggingFaceLLM:
-    def __init__(self, model_name, **kwargs):
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForCausalLM.from_pretrained(model_name)
-        self.pipeline = pipeline("text-generation", model=self.model, tokenizer=self.tokenizer, **kwargs)
-
-    def generate_text(self, prompt):
-        result = self.pipeline(prompt, max_length=150, num_return_sequences=1)
-        return result[0]['generated_text']
 
 def main():
-    st.set_page_config(page_title="DirChat", page_icon=":books:")
+    st.set_page_config(
+        page_title="DirChat",
+        page_icon=":books:"
+    )
+
     st.title("_Private Data :red[QA Chat]_ :books:")
 
     if "conversation" not in st.session_state:
@@ -38,11 +35,6 @@ def main():
     if "processComplete" not in st.session_state:
         st.session_state.processComplete = None
 
-    # 모델 미리 로딩
-    if "llm" not in st.session_state:
-        with st.spinner("모델을 로딩 중입니다..."):
-            st.session_state.llm = HuggingFaceLLM(model_name="distilgpt2")
-
     with st.sidebar:
         uploaded_files = st.file_uploader("Upload your file", type=['pdf', 'docx', 'pptx'], accept_multiple_files=True)
         process = st.button("Process")
@@ -52,11 +44,12 @@ def main():
         text_chunks = get_text_chunks(files_text)
         vectorstore = get_vectorstore(text_chunks)
 
-        st.session_state.conversation = get_conversation_chain(vectorstore, text_chunks)
+        st.session_state.conversation = get_conversation_chain(vectorstore)
         st.session_state.processComplete = True
 
     if 'messages' not in st.session_state:
-        st.session_state['messages'] = [{"role": "assistant", "content": "안녕하세요! 주어진 문서에 대해 궁금하신 것이 있으면 언제든 물어봐주세요!"}]
+        st.session_state['messages'] = [{"role": "assistant", 
+                                         "content": "안녕하세요! 주어진 문서에 대해 궁금하신 것이 있으면 언제든 물어봐주세요!"}]
 
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
@@ -64,12 +57,13 @@ def main():
 
     history = StreamlitChatMessageHistory(key="chat_messages")
 
+    # 채팅 로직
     if query := st.chat_input("질문을 입력해주세요."):
         st.session_state.messages.append({"role": "user", "content": query})
+
         with st.chat_message("user"):
             st.markdown(query)
 
-        translated_response = "죄송합니다, 응답을 생성하지 못했습니다."  # 초기화
         with st.chat_message("assistant"):
             chain = st.session_state.conversation
 
@@ -77,29 +71,26 @@ def main():
                 st.error("Conversation chain is not initialized. Please process the documents first.")
                 return
 
-            logger.info(f"User query: {query}")
-            logger.info(f"Conversation chain: {chain}")
+            logger.info(f"User query: {query}")  # 디버그 출력 추가
+            logger.info(f"Conversation chain: {chain}")  # 디버그 출력 추가
 
             with st.spinner("Thinking..."):
                 try:
                     result = chain({"question": query})
+                    st.session_state.chat_history = result['chat_history']
                     response = result['answer']
                     source_documents = result['source_documents']
 
-                    # 번역기 사용
-                    translator = Translator()
-                    translated_response = translator.translate(response, src='en', dest='ko').text
-
-                    st.markdown(translated_response)
+                    st.markdown(response)
                     with st.expander("참고 문서 확인"):
-                        for doc in source_documents:
+                        for doc in source_documents:  # 문서 출력 개선
                             st.markdown(doc.metadata['source'], help=doc.page_content)
 
-                except Exception as e:
+                except Exception as e:  # 예외 처리 추가
                     st.error(f"An error occurred: {str(e)}")
                     logger.error(f"Error during chain call: {str(e)}")
 
-                st.session_state.messages.append({"role": "assistant", "content": translated_response})
+                st.session_state.messages.append({"role": "assistant", "content": response})
 
 def tiktoken_len(text):
     tokenizer = tiktoken.get_encoding("cl100k_base")
@@ -117,7 +108,7 @@ def get_text(docs):
             loader = PyPDFLoader(file_name)
         elif file_name.endswith('.docx'):
             loader = Docx2txtLoader(file_name)
-        elif file_name.endswith('.pptx'):
+        elif file_name.endswith('.pptx'):  # pptx 파일에 대한 지원 추가
             loader = UnstructuredPowerPointLoader(file_name)
         else:
             st.error(f"Unsupported file format: {file_name}")
@@ -127,28 +118,41 @@ def get_text(docs):
     return doc_list
 
 def get_text_chunks(text):
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=900, chunk_overlap=100, length_function=tiktoken_len)
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=900,
+        chunk_overlap=100,
+        length_function=tiktoken_len
+    )
     chunks = text_splitter.split_documents(text)
     return chunks
 
 def get_vectorstore(text_chunks):
-    embeddings = HuggingFaceEmbeddings(model_name="jhgan/ko-sroberta-multitask", model_kwargs={'device': 'cpu'}, encode_kwargs={'normalize_embeddings': True})
+    embeddings = HuggingFaceEmbeddings(
+        model_name="jhgan/ko-sroberta-multitask",
+        model_kwargs={'device': 'cpu'},
+        encode_kwargs={'normalize_embeddings': True}
+    )
     vectordb = FAISS.from_documents(text_chunks, embeddings)
     return vectordb
 
-def get_conversation_chain(vectorstore, text_chunks):
-    llm = st.session_state.llm
-    prompt_template = PromptTemplate(input_variables=["context", "question"], template="{context}\n\nQ: {question}\nA:")
+def get_conversation_chain(vectorstore):  # vetorestore 변수명 변경
+    qa_pipeline = pipeline("question-answering", model="deepset/roberta-base-squad2")
 
-    def custom_llm_chain(question):
-        context = " ".join([doc.page_content for doc in text_chunks])
-        prompt = prompt_template.format(context=context, question=question)
-        return llm.generate_text(prompt)
-    
+    def qa_chain(inputs):
+        question = inputs["question"]
+        context = "\n".join([doc.page_content for doc in vectorstore.search(question, k=3)])
+        result = qa_pipeline(question=question, context=context)
+        return {
+            'answer': result['answer'],
+            'chat_history': inputs['chat_history'],
+            'source_documents': vectorstore.search(question, k=3)
+        }
+
     conversation_chain = ConversationalRetrievalChain(
+        chain=qa_chain,
         retriever=vectorstore.as_retriever(search_type='mmr', verbose=True),
-        combine_docs_chain=custom_llm_chain,
-        memory=ConversationBufferMemory(memory_key='chat_history', return_messages=True),
+        memory=ConversationBufferMemory(memory_key='chat_history', return_messages=True, output_key='answer'),
+        get_chat_history=lambda h: h,
         return_source_documents=True,
         verbose=True
     )
