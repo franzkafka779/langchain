@@ -3,7 +3,7 @@ import tiktoken
 from loguru import logger
 
 from langchain.chains import ConversationalRetrievalChain
-from langchain.chat_models import ChatOllama  # OpenAI 대신 ChatOllama 사용
+from langchain_community.chat_models import ChatOllama  # OpenAI 대신 ChatOllama 사용
 from langchain.document_loaders import PyPDFLoader, Docx2txtLoader, UnstructuredPowerPointLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings import HuggingFaceEmbeddings
