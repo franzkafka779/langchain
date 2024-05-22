@@ -148,6 +148,7 @@ def get_conversation_chain(vectorstore):
         retriever=vectorstore.as_retriever(search_type='mmr', verbose=True),
         combine_docs_chain=custom_llm_chain,
         memory=ConversationBufferMemory(memory_key='chat_history', return_messages=True),
+        return_source_documents=True,
         verbose=True
     )
     return conversation_chain
