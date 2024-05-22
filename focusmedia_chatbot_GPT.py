@@ -5,7 +5,6 @@ from loguru import logger
 from transformers import pipeline, AutoTokenizer, AutoModelForQuestionAnswering
 from langchain.chains import ConversationalRetrievalChain
 from langchain.chains.qa_with_sources import load_qa_with_sources_chain
-from langchain.llms.base import LLM
 from langchain.prompts import PromptTemplate
 
 from langchain.document_loaders import PyPDFLoader
@@ -21,24 +20,16 @@ from langchain.vectorstores import FAISS
 from langchain.callbacks import get_openai_callback
 from langchain.memory import StreamlitChatMessageHistory
 
-class HuggingFaceLLM(LLM):
+class HuggingFaceLLM:
     def __init__(self, model_name):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModelForQuestionAnswering.from_pretrained(model_name)
         self.pipeline = pipeline("question-answering", model=self.model, tokenizer=self.tokenizer)
     
-    def _call(self, prompt, stop=None):
-        input_text = prompt[0] if isinstance(prompt, list) else prompt
-        question, context = input_text.split("context: ")
-        return self.pipeline(question=question, context=context)['answer']
-    
-    @property
-    def _identifying_params(self):
-        return {"model_name": self.model.name_or_path}
-
-    @property
-    def _llm_type(self):
-        return "custom"
+    def __call__(self, inputs):
+        question, context = inputs.split("Context: ")
+        result = self.pipeline(question=question.strip(), context=context.strip())
+        return result['answer']
 
 def main():
     st.set_page_config(
