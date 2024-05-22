@@ -11,6 +11,27 @@ from langchain.vectorstores import FAISS
 from langchain.memory import StreamlitChatMessageHistory
 from googletrans import Translator
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+from langchain.llms.base import LLM
+from langchain.prompts import PromptTemplate
+from langchain.chains.llm import LLMChain
+
+class HuggingFaceLLM(LLM):
+    def __init__(self, model_name, **kwargs):
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.model = AutoModelForCausalLM.from_pretrained(model_name)
+        self.pipeline = pipeline("text-generation", model=self.model, tokenizer=self.tokenizer, **kwargs)
+
+    def _call(self, prompt, stop=None, **kwargs):
+        result = self.pipeline(prompt, max_length=150, num_return_sequences=1)
+        return result[0]['generated_text']
+
+    @property
+    def _identifying_params(self):
+        return {"model_name": self.model.name_or_path}
+
+    @property
+    def _llm_type(self):
+        return "huggingface"
 
 def main():
     st.set_page_config(page_title="DirChat", page_icon=":books:")
@@ -119,16 +140,12 @@ def get_vectorstore(text_chunks):
     return vectordb
 
 def get_conversation_chain(vectorstore):
-    tokenizer = AutoTokenizer.from_pretrained("gpt2")
-    model = AutoModelForCausalLM.from_pretrained("gpt2")
-    nlp = pipeline("text-generation", model=model, tokenizer=tokenizer)
-
-    def custom_llm(query):
-        result = nlp(query, max_length=150, num_return_sequences=1)
-        return result[0]['generated_text']
-
+    llm = HuggingFaceLLM(model_name="EleutherAI/gpt-neo-2.7B")  # 더 성능 좋은 모델로 변경
+    prompt_template = PromptTemplate(input_variables=["context", "question"], template="{context}\n\nQ: {question}\nA:")
+    llm_chain = LLMChain(prompt=prompt_template, llm=llm)
+    
     conversation_chain = ConversationalRetrievalChain.from_llm(
-        llm=custom_llm,
+        llm=llm_chain,
         chain_type="stuff",
         retriever=vectorstore.as_retriever(search_type='mmr', verbose=True),
         memory=ConversationBufferMemory(memory_key='chat_history', return_messages=True, output_key='answer'),
