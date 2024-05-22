@@ -13,6 +13,7 @@ from googletrans import Translator
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 from langchain.chains.llm import LLMChain
 from langchain.prompts import PromptTemplate
+from langchain.schema import Document
 
 class HuggingFaceLLM:
     def __init__(self, model_name, **kwargs):
@@ -51,7 +52,7 @@ def main():
         text_chunks = get_text_chunks(files_text)
         vectorstore = get_vectorstore(text_chunks)
 
-        st.session_state.conversation = get_conversation_chain(vectorstore)
+        st.session_state.conversation = get_conversation_chain(vectorstore, text_chunks)
         st.session_state.processComplete = True
 
     if 'messages' not in st.session_state:
@@ -135,12 +136,12 @@ def get_vectorstore(text_chunks):
     vectordb = FAISS.from_documents(text_chunks, embeddings)
     return vectordb
 
-def get_conversation_chain(vectorstore):
+def get_conversation_chain(vectorstore, text_chunks):
     llm = st.session_state.llm
     prompt_template = PromptTemplate(input_variables=["context", "question"], template="{context}\n\nQ: {question}\nA:")
 
     def custom_llm_chain(question):
-        context = " ".join([doc.page_content for doc in vectorstore.similarity_search(question, k=3)])
+        context = " ".join([doc.page_content for doc in text_chunks])
         prompt = prompt_template.format(context=context, question=question)
         return llm.generate_text(prompt)
     
