@@ -11,29 +11,18 @@ from langchain.vectorstores import FAISS
 from langchain.memory import StreamlitChatMessageHistory
 from googletrans import Translator
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
-from langchain.llms.base import LLM
-from langchain.prompts import PromptTemplate
 from langchain.chains.llm import LLMChain
+from langchain.prompts import PromptTemplate
 
-class HuggingFaceLLM(LLM):
+class HuggingFaceLLM:
     def __init__(self, model_name, **kwargs):
-        super().__init__(**kwargs)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModelForCausalLM.from_pretrained(model_name)
         self.pipeline = pipeline("text-generation", model=self.model, tokenizer=self.tokenizer, **kwargs)
-        self.model_name = model_name
 
-    def _call(self, prompt, stop=None, **kwargs):
+    def generate_text(self, prompt):
         result = self.pipeline(prompt, max_length=150, num_return_sequences=1)
         return result[0]['generated_text']
-
-    @property
-    def _identifying_params(self):
-        return {"model_name": self.model_name}
-
-    @property
-    def _llm_type(self):
-        return "huggingface"
 
 def main():
     st.set_page_config(page_title="DirChat", page_icon=":books:")
@@ -142,17 +131,18 @@ def get_vectorstore(text_chunks):
     return vectordb
 
 def get_conversation_chain(vectorstore):
-    llm = HuggingFaceLLM(model_name="EleutherAI/gpt-neo-2.7B")  # 더 성능 좋은 모델로 변경
+    llm = HuggingFaceLLM(model_name="EleutherAI/gpt-neo-2.7B")
     prompt_template = PromptTemplate(input_variables=["context", "question"], template="{context}\n\nQ: {question}\nA:")
-    llm_chain = LLMChain(prompt=prompt_template, llm=llm)
+
+    def custom_llm_chain(question):
+        context = " ".join([doc.page_content for doc in vectorstore.similarity_search(question, k=3)])
+        prompt = prompt_template.format(context=context, question=question)
+        return llm.generate_text(prompt)
     
-    conversation_chain = ConversationalRetrievalChain.from_llm(
-        llm=llm_chain,
-        chain_type="stuff",
+    conversation_chain = ConversationalRetrievalChain(
         retriever=vectorstore.as_retriever(search_type='mmr', verbose=True),
-        memory=ConversationBufferMemory(memory_key='chat_history', return_messages=True, output_key='answer'),
-        get_chat_history=lambda h: h,
-        return_source_documents=True,
+        combine_docs_chain=custom_llm_chain,
+        memory=ConversationBufferMemory(memory_key='chat_history', return_messages=True),
         verbose=True
     )
     return conversation_chain
