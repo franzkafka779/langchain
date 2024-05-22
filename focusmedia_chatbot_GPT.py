@@ -37,6 +37,11 @@ def main():
     if "processComplete" not in st.session_state:
         st.session_state.processComplete = None
 
+    # 모델 미리 로딩
+    if "llm" not in st.session_state:
+        with st.spinner("모델을 로딩 중입니다..."):
+            st.session_state.llm = HuggingFaceLLM(model_name="EleutherAI/gpt-neo-2.7B")
+
     with st.sidebar:
         uploaded_files = st.file_uploader("Upload your file", type=['pdf', 'docx', 'pptx'], accept_multiple_files=True)
         process = st.button("Process")
@@ -131,7 +136,7 @@ def get_vectorstore(text_chunks):
     return vectordb
 
 def get_conversation_chain(vectorstore):
-    llm = HuggingFaceLLM(model_name="EleutherAI/gpt-neo-2.7B")
+    llm = st.session_state.llm
     prompt_template = PromptTemplate(input_variables=["context", "question"], template="{context}\n\nQ: {question}\nA:")
 
     def custom_llm_chain(question):
