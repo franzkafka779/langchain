@@ -16,9 +16,8 @@ from langchain.prompts import PromptTemplate
 from langchain.chains.llm import LLMChain
 
 class HuggingFaceLLM(LLM):
-    model_name: str
-
     def __init__(self, model_name, **kwargs):
+        super().__init__(**kwargs)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModelForCausalLM.from_pretrained(model_name)
         self.pipeline = pipeline("text-generation", model=self.model, tokenizer=self.tokenizer, **kwargs)
