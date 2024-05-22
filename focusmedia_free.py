@@ -52,6 +52,7 @@ def main():
         with st.chat_message("user"):
             st.markdown(query)
 
+        translated_response = "죄송합니다, 응답을 생성하지 못했습니다."  # 초기화
         with st.chat_message("assistant"):
             chain = st.session_state.conversation
 
