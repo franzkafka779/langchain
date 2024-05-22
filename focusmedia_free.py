@@ -1,55 +1,20 @@
 import streamlit as st
 import tiktoken
 from loguru import logger
-import torch
-from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
 
 from langchain.chains import ConversationalRetrievalChain
+from langchain.chat_models import ChatOllama  # OpenAI 대신 ChatOllama 사용
 from langchain.document_loaders import PyPDFLoader, Docx2txtLoader, UnstructuredPowerPointLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.memory import ConversationBufferMemory
 from langchain.vectorstores import FAISS
+from langchain.callbacks import get_openai_callback
 from langchain.memory import StreamlitChatMessageHistory
-
-# 모델 설정
-MODEL = 'beomi/KoAlpaca-Polyglot-5.8B'
-
-try:
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL,
-        torch_dtype=torch.float16
-    ).to(device="cpu")
-    model.eval()
-    tokenizer = AutoTokenizer.from_pretrained(MODEL)
-    pipe = pipeline(
-        'text-generation',
-        model=model,
-        tokenizer=tokenizer,
-        device=-1  # CPU를 사용하도록 설정
-    )
-except ImportError as e:
-    logger.error(f"Error importing model: {e}")
-    st.error(f"Error importing model: {e}")
-
-def ask(question, context=''):
-    result = pipe(
-        f"### 질문: {question}\n\n### 맥락: {context}\n\n### 답변:" if context else f"### 질문: {question}\n\n### 답변:",
-        do_sample=True,
-        max_new_tokens=512,
-        temperature=0.7,
-        top_p=0.9,
-        return_full_text=False,
-        eos_token_id=2,
-    )
-    return result[0]['generated_text']
+from googletrans import Translator
 
 def main():
-    st.set_page_config(
-        page_title="DirChat",
-        page_icon=":books:"
-    )
-
+    st.set_page_config(page_title="DirChat", page_icon=":books:")
     st.title("_Private Data :red[QA Chat]_ :books:")
 
     if "conversation" not in st.session_state:
@@ -74,8 +39,7 @@ def main():
         st.session_state.processComplete = True
 
     if 'messages' not in st.session_state:
-        st.session_state['messages'] = [{"role": "assistant", 
-                                         "content": "안녕하세요! 주어진 문서에 대해 궁금하신 것이 있으면 언제든 물어봐주세요!"}]
+        st.session_state['messages'] = [{"role": "assistant", "content": "안녕하세요! 주어진 문서에 대해 궁금하신 것이 있으면 언제든 물어봐주세요!"}]
 
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
@@ -83,10 +47,8 @@ def main():
 
     history = StreamlitChatMessageHistory(key="chat_messages")
 
-    # 채팅 로직
     if query := st.chat_input("질문을 입력해주세요."):
         st.session_state.messages.append({"role": "user", "content": query})
-
         with st.chat_message("user"):
             st.markdown(query)
 
@@ -102,13 +64,15 @@ def main():
 
             with st.spinner("Thinking..."):
                 try:
-                    # KoAlpaca 모델을 사용하여 질문에 답변
                     result = chain({"question": query})
-                    context = " ".join([doc.page_content for doc in result['source_documents']])
-                    response = ask(query, context)
+                    response = result['answer']
                     source_documents = result['source_documents']
 
-                    st.markdown(response)
+                    # 번역기 사용
+                    translator = Translator()
+                    translated_response = translator.translate(response, src='en', dest='ko').text
+
+                    st.markdown(translated_response)
                     with st.expander("참고 문서 확인"):
                         for doc in source_documents:
                             st.markdown(doc.metadata['source'], help=doc.page_content)
@@ -117,7 +81,7 @@ def main():
                     st.error(f"An error occurred: {str(e)}")
                     logger.error(f"Error during chain call: {str(e)}")
 
-                st.session_state.messages.append({"role": "assistant", "content": response})
+                st.session_state.messages.append({"role": "assistant", "content": translated_response})
 
 def tiktoken_len(text):
     tokenizer = tiktoken.get_encoding("cl100k_base")
@@ -145,26 +109,19 @@ def get_text(docs):
     return doc_list
 
 def get_text_chunks(text):
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=900,
-        chunk_overlap=100,
-        length_function=tiktoken_len
-    )
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=900, chunk_overlap=100, length_function=tiktoken_len)
     chunks = text_splitter.split_documents(text)
     return chunks
 
 def get_vectorstore(text_chunks):
-    embeddings = HuggingFaceEmbeddings(
-        model_name="jhgan/ko-sroberta-multitask",
-        model_kwargs={'device': 'cpu'},
-        encode_kwargs={'normalize_embeddings': True}
-    )
+    embeddings = HuggingFaceEmbeddings(model_name="jhgan/ko-sroberta-multitask", model_kwargs={'device': 'cpu'}, encode_kwargs={'normalize_embeddings': True})
     vectordb = FAISS.from_documents(text_chunks, embeddings)
     return vectordb
 
 def get_conversation_chain(vectorstore):
+    llm = ChatOllama(model_name='llama3')  # ChatOllama 모델 사용
     conversation_chain = ConversationalRetrievalChain.from_llm(
-        llm=None,
+        llm=llm,
         chain_type="stuff",
         retriever=vectorstore.as_retriever(search_type='mmr', verbose=True),
         memory=ConversationBufferMemory(memory_key='chat_history', return_messages=True, output_key='answer'),
