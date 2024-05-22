@@ -5,30 +5,25 @@ from loguru import logger
 from transformers import pipeline, AutoTokenizer, AutoModelForQuestionAnswering
 from langchain.chains import ConversationalRetrievalChain
 from langchain.chains.qa_with_sources import load_qa_with_sources_chain
+from langchain.llms import HuggingFaceRunnableLLM
 from langchain.prompts import PromptTemplate
-
-from langchain.document_loaders import PyPDFLoader
-from langchain.document_loaders import Docx2txtLoader
-from langchain.document_loaders import UnstructuredPowerPointLoader
-
+from langchain.document_loaders import PyPDFLoader, Docx2txtLoader, UnstructuredPowerPointLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings import HuggingFaceEmbeddings
-
 from langchain.memory import ConversationBufferMemory
 from langchain.vectorstores import FAISS
-
 from langchain.callbacks import get_openai_callback
 from langchain.memory import StreamlitChatMessageHistory
 
-class HuggingFaceLLM:
+class HuggingFaceRunnableLLM:
     def __init__(self, model_name):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModelForQuestionAnswering.from_pretrained(model_name)
         self.pipeline = pipeline("question-answering", model=self.model, tokenizer=self.tokenizer)
     
     def __call__(self, inputs):
-        question, context = inputs.split("Context: ")
-        result = self.pipeline(question=question.strip(), context=context.strip())
+        question, context = inputs["question"], inputs["context"]
+        result = self.pipeline(question=question, context=context)
         return result['answer']
 
 def main():
@@ -150,7 +145,7 @@ def get_vectorstore(text_chunks):
 
 def get_conversation_chain(vectorstore):  # vetorestore 변수명 변경
     model_name = "deepset/roberta-base-squad2"
-    llm = HuggingFaceLLM(model_name=model_name)
+    llm = HuggingFaceRunnableLLM(model_name=model_name)
     prompt_template = PromptTemplate(
         input_variables=["question", "context"],
         template="Question: {question}\nContext: {context}\nAnswer:"
