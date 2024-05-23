@@ -1,0 +1,62 @@
+import streamlit as st
+import fitz  # PyMuPDF
+import pandas as pd
+from transformers import pipeline
+
+# PDF에서 텍스트와 표 추출 함수
+def extract_text_and_tables(pdf_path):
+    doc = fitz.open(pdf_path)
+    text = ""
+    tables = []
+    
+    for page_num in range(len(doc)):
+        page = doc.load_page(page_num)
+        text += page.get_text()
+
+        # 표 추출
+        blocks = page.get_text("blocks")
+        for block in blocks:
+            if block[6] == 0:  # text block
+                continue
+            # 여기서 표 추출 로직을 추가합니다. 필요에 따라 개선할 수 있습니다.
+            table_data = block[4].split('\n')
+            table = [row.split() for row in table_data]
+            tables.append(pd.DataFrame(table))
+
+    return text, tables
+
+# 챗봇 모델 로드
+chatbot = pipeline("text-generation", model="gpt-2")
+
+# Streamlit UI 구성
+st.title("회사 내규 챗봇")
+st.write("PDF에서 텍스트와 표를 추출하고 챗봇으로 질문에 답변합니다.")
+
+# PDF 파일 업로드
+uploaded_file = st.file_uploader("PDF 파일 업로드", type="pdf")
+
+if uploaded_file is not None:
+    with open("uploaded_pdf.pdf", "wb") as f:
+        f.write(uploaded_file.getbuffer())
+    
+    # PDF에서 텍스트와 표 추출
+    text, tables = extract_text_and_tables("uploaded_pdf.pdf")
+    st.write("추출된 텍스트:")
+    st.write(text)
+    
+    if tables:
+        st.write("추출된 표:")
+        for i, table in enumerate(tables):
+            st.write(f"Table {i+1}")
+            st.dataframe(table)
+    
+    # 챗봇과 대화
+    user_input = st.text_input("질문을 입력하세요:")
+    if user_input:
+        response = chatbot(user_input, max_length=50)
+        st.write("챗봇의 답변:")
+        st.write(response[0]['generated_text'])
+
+# Notion 임베딩 안내
+st.write("이 페이지를 Notion에 임베드하려면, 다음의 코드를 Notion에 추가하세요:")
+st.code('<iframe src="https://share.streamlit.io/your-streamlit-app" width="100%" height="600"></iframe>', language="html")
